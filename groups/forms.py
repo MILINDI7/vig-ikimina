@@ -24,12 +24,16 @@ def integer(value, minimum=0):
 class SettingsForm(forms.ModelForm):
     class Meta:
         model = GroupSettings
-        fields = ["contribution_amount", "due_day", "effective_from", "lateness_tiers", "rating_classes"]
+        fields = ["contribution_amount", "due_day", "loan_default_days", "effective_from", "lateness_tiers", "rating_classes"]
         widgets = {"effective_from": forms.DateInput(attrs={"type": "date"}), "lateness_tiers": forms.Textarea(attrs={"rows": 8}), "rating_classes": forms.Textarea(attrs={"rows": 16})}
-        help_texts = {"due_day": "Day of the following month (1-28), so every month has a valid due date.", "lateness_tiers": 'JSON list: [{"days_late": 1, "flat_fee": 500, "percentage_bps": 0}]. Each tier is assessed once when its threshold is reached. Percentages use the contribution principal; 100 basis points = 1%.', "rating_classes": "Ordered best to worst. Rules use a rolling 12-month window; the last class must be an unrestricted fallback. Optional max_outstanding_loans limits open loans; omitted/null means unrestricted. Interest is a flat rate per loan, in basis points; loan limits are integer multiples of approved savings."}
+        help_texts = {"loan_default_days": "Loan defaults after this many days past an unpaid installment due date (1-365). Fixed at approval; blank uses 30.", "due_day": "Day of the following month (1-28), so every month has a valid due date.", "lateness_tiers": 'JSON list: [{"days_late": 1, "flat_fee": 500, "percentage_bps": 0}]. Each tier is assessed once when its threshold is reached. Percentages use the contribution principal; 100 basis points = 1%.', "rating_classes": "Ordered best to worst. Rules use a rolling 12-month window; the last class must be an unrestricted fallback. Optional max_outstanding_loans limits open loans; omitted/null means unrestricted. Interest is a flat rate per loan, in basis points; loan limits are integer multiples of approved savings."}
     def __init__(self, *args, new_group=False, **kwargs):
         self.new_group = new_group
         super().__init__(*args, **kwargs)
+        self.fields["loan_default_days"].required = False
+    def clean_loan_default_days(self):
+        value = self.cleaned_data.get("loan_default_days")
+        return 30 if value is None else value
     def clean_effective_from(self):
         day = self.cleaned_data["effective_from"]
         today = timezone.localdate()

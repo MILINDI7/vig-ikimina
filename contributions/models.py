@@ -83,10 +83,12 @@ class Penalty(models.Model):
 
 class Notification(models.Model):
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="notifications")
-    contribution = models.ForeignKey(Contribution, on_delete=models.PROTECT)
+    contribution = models.ForeignKey(Contribution, on_delete=models.PROTECT, null=True, blank=True)
+    loan_request = models.ForeignKey("loans.LoanRequest", on_delete=models.PROTECT, null=True, blank=True)
     event_key = models.CharField(max_length=120, unique=True)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     read_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         ordering = ["-created_at", "-pk"]
+        constraints = [models.CheckConstraint(condition=(models.Q(contribution__isnull=False, loan_request__isnull=True) | models.Q(contribution__isnull=True, loan_request__isnull=False)), name="notification_exactly_one_target")]

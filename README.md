@@ -1,16 +1,16 @@
-# Savings Group Manager - Phase 4
+# Savings Group Manager - Phase 5
 
-Django 5.2 LTS, custom authentication, mobile-first templates, SQLite locally and PostgreSQL via environment variables. Contribution records, private proof reviews, auditable penalties and per-group ratings are implemented. All RWF amounts are integers.
+Django 5.2 LTS, custom authentication, mobile-first templates, SQLite locally and PostgreSQL via environment variables. Contribution records, private proof reviews, auditable penalties, per-group ratings and loans are implemented. All RWF amounts are integers.
 
 ## Plan and phase boundary
 1. Authentication, account creation, roles and forced password changes (complete).
 2. Groups, memberships and versioned settings (complete).
 3. Contributions, private proof uploads, review and auditable penalties (complete).
 4. Configurable CRB-style ratings and history (complete).
-5. Loans and repayments.
+5. Loans and repayments (complete).
 6. Financial dashboards, reports, notifications, complete seed data and deployment documentation.
 
-The requested stop after each phase is respected. The home dashboard remains an account overview. Each group now has its own contribution ledger and savings summary. Ratings and retained rating history are available per membership. Loans, consolidated reports and complete demo seed data remain for later phases.
+The requested stop after each phase is respected. The home dashboard remains an account overview. Each group now has its own contribution ledger and savings summary. Ratings and retained rating history are available per membership. Loans and repayment schedules are available from the Loans navigation. Consolidated reports and complete demo seed data remain for Phase 6.
 
 ## Windows setup
 ```powershell
@@ -48,7 +48,7 @@ Archived groups remain visible to their active members but are read-only; restor
 
 Settings are append-only through the application and have an effective date. Initial settings start today; later versions must start in the future. Today uses the latest version whose effective date has arrived; newest ID wins for a matching date. All scheduled and historic versions are shown to admins. Contribution periods now reference their original version and retain immutable rule snapshots. Model instance edits/deletes are blocked; trusted database operators or direct queryset writes can bypass model methods.
 
-Due days are restricted to 1-28 to work in every month. Initial contribution amount defaults to 10,000 RWF and is configurable. Penalty tiers and ordered rating classes are validated JSON lists, editable in the settings form. No tiers means no penalties. Tiers are one-off cumulative assessments upon reaching increasing day thresholds, with integer flat fees and basis-point percentages of the contribution principal. Rating thresholds use a rolling 12-month window with an unrestricted final fallback. Loan interest is a flat per-loan basis-point rate; savings multiples are nonnegative integers. These rule semantics are the defaults for subsequent engines; the penalty and rating engines now apply these rules; the loan engine remains for Phase 5.
+Due days are restricted to 1-28 to work in every month. Initial contribution amount defaults to 10,000 RWF and is configurable. Penalty tiers and ordered rating classes are validated JSON lists, editable in the settings form. No tiers means no penalties. Tiers are one-off cumulative assessments upon reaching increasing day thresholds, with integer flat fees and basis-point percentages of the contribution principal. Rating thresholds use a rolling 12-month window with an unrestricted final fallback. Loan interest is a flat per-loan basis-point rate; savings multiples are nonnegative integers. These rule semantics are the defaults for subsequent engines; the penalty and rating engines now apply these rules; the loan engine now uses rating-based terms as described in Phase 5 below.
 
 To update an existing Phase 1 database, run `python manage.py migrate` using the project virtual environment. Phase 2 adds no automatic groups or member data; the full demo seed remains scheduled for Phase 6.
 
@@ -56,7 +56,7 @@ To update an existing Phase 1 database, run `python manage.py migrate` using the
 1. Create a group and its settings, add members, and assign at least one group Treasurer (or use an Admin reviewer).
 2. Open **Groups > group > Open contributions**. The current month's obligations are created automatically for current active memberships. Admins and assigned Treasurers see a group ledger; other members see only their own records.
 3. Members open a month, upload proof, and wait for review. **Review queue** filters pending proofs by group, month and member. A decline requires a reason; a reviewer cannot approve or decline their own contribution. Resubmissions retain all earlier proof and review records. Stale review forms are rejected.
-4. Members receive due-soon, first-late and proof-decision notices in **Notifications**. External email/SMS delivery and other notification types remain for Phase 6. The dedicated notification service is the integration point.
+4. Members receive due-soon, first-late and proof-decision notices in **Notifications**. Loan decisions and default notices are also included. External email/SMS delivery and remaining notification types stay in Phase 6. The dedicated notification service is the integration point.
 
 Each month is due by the configured day of the following month, inclusive. November with due_day=5 becomes late on December 6. The period uses settings effective on its first day; a group's initial partial month uses its first version. The amount, due date and full rules are snapshotted once. Later settings versions never alter an existing period.
 
@@ -131,10 +131,8 @@ An initial rating and every class or applicable settings-version change append a
 
 Rating changes also write AuditLog entries in the same transaction. Group locks serialize rating evaluation with contribution changes on PostgreSQL. Archived groups retain their last recorded rating and stop updates; they remain ineligible for loans. Restoring a group allows recalculation on the next daily or on-demand refresh.
 
-### Loan integration boundary
-The rating page previews configured eligibility, interest basis points and maximum savings multiple. Its limit is approved savings times the configured integer multiple; pending contributions do not count. Inactive users/memberships, archived groups, restricted classes and zero limits are ineligible. This is a preview: there is no loan request, approval, outstanding-balance deduction or repayment functionality until Phase 5.
-
-`ratings.services.loan_metrics` is the Phase 5 integration point. It currently returns zero loan counts/defaults and explicitly marks loan data unavailable; the UI says those records are not yet included. Tests inject loan/default metrics to verify the configured rule evaluation. Phase 5 must replace that provider with actual loan records and recheck terms within request/approval transactions; the current preview must not be treated as an authorized loan.
+### Loan integration (implemented in Phase 5)
+The rating page now uses live approved savings, outstanding principal and default history to show available borrowing capacity. `ratings.services.loan_metrics` reads actual loan/installment/default records and refreshes default events under the group transaction lock. Request and approval services both recheck current eligibility. Phase 4 history snapshots remain unchanged, including any earlier snapshots that explicitly marked loan data unavailable.
 
 ### Upgrade, refresh and tests
 ```powershell
@@ -144,7 +142,59 @@ The rating page previews configured eligibility, interest basis points and maxim
 ```
 The standalone `recalculate_ratings` command initializes/refreshes existing memberships without creating contribution periods. The normal daily contribution command includes this refresh going forward. No external CRB integration is performed.
 
-Phase 4 tests cover automatic rating transitions, pending/decline/approval rules, review delays, worst lateness and late-count thresholds, calendar/leap-day windows, unresolved older debts, group isolation, effective settings and historical snapshots, repeated evaluations, configured loan terms, integration metrics, immutable history, transactional audit failure, page permissions and rejected manual overrides. Browser rendering and live PostgreSQL concurrency remain unverified. Phase 4 stops here; Phase 5 adds actual loans.
+Phase 4 tests cover automatic rating transitions, pending/decline/approval rules, review delays, worst lateness and late-count thresholds, calendar/leap-day windows, unresolved older debts, group isolation, effective settings and historical snapshots, repeated evaluations, configured loan terms, integration metrics, immutable history, transactional audit failure, page permissions and rejected manual overrides. Browser rendering and live PostgreSQL concurrency remain unverified. Phase 5 adds actual loans as described below.
 
 ## Repository workflow
 Repository: https://github.com/MILINDI7/vig-ikimina. Complete and test each phase, run Django checks and migration consistency checks, review the diff, then commit and push that phase to main. Keep local database, credentials, virtual environment and private uploads excluded from Git.
+
+## Phase 5: loan requests, schedules and repayments
+Use **Loans** in the navigation. Members choose an active membership and request an amount, purpose and 1-60 month repayment period. Each membership can have one pending request; multiple active loans are permitted within its rating rules and capacity. Admins use the same page, optionally filtered by group and Pending status, to review requests. Treasurers have no loan administration access unless they are also system Admins; they see only their own borrowing. Server-side permissions enforce these boundaries.
+
+An Admin approves or rejects; rejections require a reason. Approval sets the first due date (strictly after today) and final installment count. Admins cannot decide their own requests or record repayments on their own loans. Approval records the loan as issued: actual disbursement must be arranged and verified outside the application; no money transfer integration is performed. This phase adds no cash-availability accounting or disbursement settlement state.
+
+### Eligibility and fixed contracts
+Both request submission and approval independently recheck the current rating and available capacity under the group lock:
+```
+capacity = all approved contribution savings * current rating savings multiple
+available = max(0, capacity - outstanding principal on existing loans)
+```
+Pending contributions do not count as savings. Outstanding interest is not subtracted from principal capacity, but a loan with any unpaid balance still counts as an outstanding loan for max_outstanding_loans rules. Pending requests do not reserve capacity. Restricted ratings, inactive users/memberships, archived groups or zero available capacity cannot borrow. Removed members can still view their records and have an Admin record settlement of prior loans.
+
+Requested principal is a positive integer, at most 1 trillion RWF, and must be at least the number of monthly installments to avoid zero-principal installments. The loan agreement freezes the approval-time rate, class/rules, settings version, default threshold, principal and schedule. Request-time terms are separately retained for comparison. Changed rating/rules while a request is pending can change the rate or cause approval to fail; they cannot rewrite an issued loan. Admins cannot silently alter the requested principal.
+
+Interest is a **flat one-time rate per loan**, not an annual percentage or reducing-balance rate:
+```
+interest_rwf = ceil(principal_rwf * interest_bps / 10000)
+total_due_rwf = principal_rwf + interest_rwf
+```
+All calculations use integer arithmetic. Principal and interest are each divided into the installment count, with their residual RWF assigned to the earliest installments. Component sums and the total always match the fixed contract. Dates use the original first due day each month, clamped when necessary: January 31 -> February 28/29 -> March 31. The first installment is due in the future, and its date is inclusive.
+
+### Repayments and auditability
+Admins open an approved loan and select **Record repayment**, entering verified funds received and a payment reference. Each repayment is allocated to the oldest installment, paying its unpaid interest first and then principal, before moving to the next installment. Partial payments, early payments and full settlement are supported; overpayments and nonpositive amounts are rejected. There is no backdating: the received/recorded date is the current Africa/Kigali date.
+
+Requests and repayments carry unique submission tokens so replaying the same form does not duplicate records. A reused token with a different payload is rejected. A payment reference, trimmed and uppercased, cannot be reused for the same loan. Duplicate/stale approval decisions are rejected, and each request has at most one issued loan.
+
+Approved contract terms and repayment/allocation ledger records have no editing/deletion UI and model instance edits are blocked. Corrections, waivers, restructures and reversals are not implemented. Trusted direct SQL/queryset writes can bypass application guards. Installment counters, repayment allocation rows, audit entries, notifications and rating updates are committed together; an error rolls back the transaction. PostgreSQL group/row locks serialize decisions, capacity checks and repayments; SQLite is for local development, and live PostgreSQL concurrency is not verified here.
+
+### Defaults and credit ratings
+New group settings versions include **loan_default_days**, from 1 to 365, default 30 (blank also uses 30). Each issued loan retains its own approval-time threshold. An installment is overdue the day after its due date. A loan enters default once its oldest unpaid installment reaches the threshold; with a December 11 due date and threshold 30, default starts January 10.
+
+Default detection records the actual threshold date and the detection timestamp, updates loan status and creates an in-app notice once per episode. Paying enough to remove the qualifying overdue installment cures that episode. A missed daily run cannot hide a default: repayment processing checks and records any reached default before applying the payment. A later missed installment can open another episode, while a database constraint permits only one unresolved episode per loan.
+
+Rating defaults count **distinct loans**, not episodes, that have an unresolved default or a default cured within the trailing 12-calendar-month window. Unresolved older defaults remain included; a cured default ages out after that window. Repayment can clear the balance without immediately restoring the best rating. History, loan evidence and default/cure audit records are retained. Loans become Active, Defaulted or Repaid; repayment schedules and current balances are visible to the borrower and Admins.
+
+The existing daily `recalculate_contributions` task refreshes all membership ratings and therefore detects loan defaults as well. `recalculate_ratings` also includes loan metrics. No new scheduled task is needed. A standalone refresh is available:
+```powershell
+.\.venv\Scripts\python manage.py recalculate_loans
+```
+Loan detail pages refresh current defaults on demand. Archived groups retain their last state and block decisions/repayments until restored; restoring resumes checks against original contract dates. Scheduler registration remains an operator setup step documented in Phase 3.
+
+### Upgrade and verification
+```powershell
+.\.venv\Scripts\python manage.py migrate
+.\.venv\Scripts\python manage.py recalculate_loans
+.\.venv\Scripts\python manage.py test
+```
+Migrations add loan records and versioned default settings and allow the existing notification inbox to target either a contribution or a loan request (exactly one is required). No demo borrowers or loans are inserted into the real database. The complete demo seed remains in Phase 6.
+
+Phase 5 tests cover eligibility/capacity, owner/admin permissions, current-rule rechecks, interest rounding, large/zero-interest integer totals, anchored month-end schedules, partial/full repayment allocation, reference/token idempotence, defaults and cures, default aging, retained terms, audit rollback, CSRF, inbox links and the end-to-end member/admin flow. Browser rendering and live PostgreSQL/S3 remain unverified. Stop after Phase 5; Phase 6 completes dashboards, reports, remaining notifications and demo seed data.

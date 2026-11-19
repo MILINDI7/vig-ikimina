@@ -158,7 +158,7 @@ class RatingTests(TestCase):
         self.assertEqual(terms["approved_savings"],10000)
         self.assertEqual(terms["max_amount"],30000)
         self.assertEqual(terms["interest_bps"],500)
-        self.assertFalse(terms["loan_data_available"])
+        self.assertTrue(terms["loan_data_available"])
         self.approved(date(2025,10,1),2)
         terms=loan_terms(self.membership.pk)
         self.assertEqual(terms["max_amount"],40000)

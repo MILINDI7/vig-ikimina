@@ -105,7 +105,7 @@ def settings_create(request, pk):
     group = get_object_or_404(Group.objects.select_for_update(), pk=pk)
     if group.is_archived: raise PermissionDenied
     latest = group.settings_versions.first()
-    initial = {key: getattr(latest, key) for key in ["contribution_amount", "due_day", "lateness_tiers", "rating_classes"]} if latest else {}
+    initial = {key: getattr(latest, key) for key in ["contribution_amount", "due_day", "loan_default_days", "lateness_tiers", "rating_classes"]} if latest else {}
     initial["effective_from"] = timezone.localdate() + timedelta(days=1)
     form = SettingsForm(request.POST if request.method == "POST" else None, initial=initial)
     if request.method == "POST" and form.is_valid():

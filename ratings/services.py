@@ -16,8 +16,12 @@ def window_start(day):
     return anniversary + timedelta(days=1)
 
 def loan_metrics(membership, day):
-    """Phase 5 integration seam; no loan records exist in the current phase."""
-    return {"outstanding_loans": 0, "defaults": 0, "loan_data_available": False}
+    from django.db.models import Q
+    from loans.models import LoanDefaultEvent
+    from loans.services import sync_defaults
+    evidence = sync_defaults(membership, day)
+    events = list(LoanDefaultEvent.objects.filter(loan__membership=membership, started_on__lte=day).filter(Q(cured_on__isnull=True) | Q(cured_on__gte=window_start(day))).order_by("pk"))
+    return {"outstanding_loans": sum(item["balance_rwf"] > 0 for item in evidence), "defaults": len({event.loan_id for event in events}), "loan_data_available": True, "outstanding_principal_rwf": sum(item["principal_outstanding_rwf"] for item in evidence), "loan_evidence": evidence, "default_history": [{"loan_id": event.loan_id, "started_on": event.started_on.isoformat(), "cured_on": event.cured_on.isoformat() if event.cured_on else None} for event in events]}
 
 def payment_metrics(membership, day):
     start = window_start(day)
@@ -79,14 +83,16 @@ def evaluate_group(group_id, *, actor=None, trigger="daily"):
 
 @transaction.atomic
 def loan_terms(membership_id):
-    """Preview configured terms; Phase 5 must recheck inside its approval transaction."""
+    """Live available terms; callers approving loans must retain the group lock."""
     group_id = Membership.objects.values_list("group_id",flat=True).get(pk=membership_id)
     group = Group.objects.select_for_update().get(pk=group_id)
-    membership = Membership.objects.select_for_update().select_related("user").get(pk=membership_id)
+    membership = Membership.objects.select_for_update(of=("self",)).select_related("user").get(pk=membership_id)
     rating = evaluate_membership(membership_id)
     savings = Contribution.objects.filter(membership=membership,status=Contribution.Status.APPROVED).aggregate(total=Sum("period__amount"))["total"] or 0
     if rating is None:
-        return {"eligible": False,"max_amount": 0,"interest_bps": 0,"approved_savings": savings,"reason": "No effective rating rules.","loan_data_available": False}
-    configured_limit = savings * rating.class_snapshot["max_loan_multiple"]
-    allowed = membership.is_active and membership.user.is_active and not group.is_archived and rating.class_snapshot["loan_eligible"] and configured_limit > 0
-    return {"eligible": bool(allowed),"max_amount": configured_limit if allowed else 0,"interest_bps": rating.class_snapshot["interest_bps"],"approved_savings": savings,"reason": "Configured terms only; loan requests are added in Phase 5.","loan_data_available": rating.metrics["loan_data_available"]}
+        return {"eligible": False,"max_amount": 0,"interest_bps": 0,"approved_savings": savings,"reason": "No effective rating rules.","loan_data_available": True,"outstanding_principal": 0,"capacity_limit": 0}
+    capacity = savings * rating.class_snapshot["max_loan_multiple"]
+    outstanding = rating.metrics.get("outstanding_principal_rwf",0)
+    available = max(0,capacity-outstanding)
+    allowed = membership.is_active and membership.user.is_active and not group.is_archived and rating.class_snapshot["loan_eligible"] and available > 0
+    return {"eligible": bool(allowed),"max_amount": available if allowed else 0,"capacity_limit": capacity,"outstanding_principal": outstanding,"interest_bps": rating.class_snapshot["interest_bps"],"approved_savings": savings,"reason": "Eligibility and available capacity are rechecked at approval.","loan_data_available": True,"settings_version_id": rating.settings_version_id,"rating_code": rating.code,"rating_class": deepcopy(rating.class_snapshot)}

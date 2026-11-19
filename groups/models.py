@@ -31,6 +31,7 @@ class GroupSettings(models.Model):
     group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="settings_versions")
     contribution_amount = models.PositiveBigIntegerField(default=10000, validators=[MinValueValidator(1)])
     due_day = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1), MaxValueValidator(28)])
+    loan_default_days = models.PositiveSmallIntegerField(default=30, validators=[MinValueValidator(1), MaxValueValidator(365)])
     effective_from = models.DateField(default=timezone.localdate)
     lateness_tiers = models.JSONField(default=list, blank=True)
     rating_classes = models.JSONField(default=list)
