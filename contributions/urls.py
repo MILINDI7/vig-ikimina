@@ -1,0 +1,3 @@
+from django.urls import path
+from . import views
+urlpatterns = [path("queue/", views.review_queue, name="review_queue"), path("notifications/", views.notifications, name="notifications"), path("notifications/<int:pk>/read/", views.mark_read, name="notification_read"), path("groups/<int:pk>/", views.group_contributions, name="group_contributions"), path("groups/<int:pk>/open/", views.open_period, name="open_period"), path("<int:pk>/", views.detail, name="contribution_detail"), path("<int:pk>/upload/", views.upload, name="proof_upload"), path("proofs/<int:pk>/", views.proof_image, name="proof_image")]
