@@ -26,7 +26,7 @@ class SettingsForm(forms.ModelForm):
         model = GroupSettings
         fields = ["contribution_amount", "due_day", "effective_from", "lateness_tiers", "rating_classes"]
         widgets = {"effective_from": forms.DateInput(attrs={"type": "date"}), "lateness_tiers": forms.Textarea(attrs={"rows": 8}), "rating_classes": forms.Textarea(attrs={"rows": 16})}
-        help_texts = {"due_day": "Day of the following month (1-28), so every month has a valid due date.", "lateness_tiers": 'JSON list: [{"days_late": 1, "flat_fee": 500, "percentage_bps": 0}]. Each tier is assessed once when its threshold is reached. Percentages use the contribution principal; 100 basis points = 1%.', "rating_classes": "Ordered best to worst. Rules use a rolling 12-month window; the last class must be an unrestricted fallback. Interest is a flat rate per loan, in basis points; loan limits are integer multiples of approved savings."}
+        help_texts = {"due_day": "Day of the following month (1-28), so every month has a valid due date.", "lateness_tiers": 'JSON list: [{"days_late": 1, "flat_fee": 500, "percentage_bps": 0}]. Each tier is assessed once when its threshold is reached. Percentages use the contribution principal; 100 basis points = 1%.', "rating_classes": "Ordered best to worst. Rules use a rolling 12-month window; the last class must be an unrestricted fallback. Optional max_outstanding_loans limits open loans; omitted/null means unrestricted. Interest is a flat rate per loan, in basis points; loan limits are integer multiples of approved savings."}
     def __init__(self, *args, new_group=False, **kwargs):
         self.new_group = new_group
         super().__init__(*args, **kwargs)
@@ -54,15 +54,19 @@ class SettingsForm(forms.ModelForm):
         codes = set()
         keys = {"code", "name", "description", "max_days_late", "max_late_payments", "max_defaults", "loan_eligible", "interest_bps", "max_loan_multiple"}
         for rating in classes:
-            if not isinstance(rating, dict) or set(rating) != keys:
+            if not isinstance(rating, dict) or not keys.issubset(rating) or set(rating) - keys - {"max_outstanding_loans"}:
                 raise forms.ValidationError("Every class must contain all fields shown in the default example.")
             if any(not isinstance(rating[k], str) for k in ["code", "name", "description"]) or not rating["code"].strip() or not rating["name"].strip() or rating["code"] in codes:
                 raise forms.ValidationError("Classes need unique nonempty codes and names, and text descriptions.")
+            if len(rating["code"]) > 100:
+                raise forms.ValidationError("Rating codes must be at most 100 characters.")
             codes.add(rating["code"])
+            if rating.get("max_outstanding_loans") is not None and not integer(rating["max_outstanding_loans"]):
+                raise forms.ValidationError("Maximum outstanding loans must be a nonnegative integer or null.")
             if any(rating[k] is not None and not integer(rating[k]) for k in ["max_days_late", "max_late_payments", "max_defaults"]):
                 raise forms.ValidationError("Rating thresholds must be nonnegative integers or null.")
             if type(rating["loan_eligible"]) is not bool or not integer(rating["interest_bps"]) or rating["interest_bps"] > 10000 or not integer(rating["max_loan_multiple"]):
                 raise forms.ValidationError("Use a boolean eligibility, integer interest basis points (0-10000), and a nonnegative integer savings multiple.")
-        if any(classes[-1][k] is not None for k in ["max_days_late", "max_late_payments", "max_defaults"]):
+        if any(classes[-1].get(k) is not None for k in ["max_days_late", "max_late_payments", "max_defaults", "max_outstanding_loans"]):
             raise forms.ValidationError("The final class must have null thresholds to serve as a fallback.")
         return classes

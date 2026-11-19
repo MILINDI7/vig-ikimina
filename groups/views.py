@@ -42,7 +42,9 @@ def group_create(request):
 def group_detail(request, pk):
     group = get_object_or_404(visible_groups(request.user), pk=pk)
     membership = group.memberships.filter(user=request.user, is_active=True).first()
-    return render(request, "groups/detail.html", {"group": group, "settings": group.settings_on(), "membership": membership, "memberships": group.memberships.select_related("user").all() if request.user.is_system_admin else None, "versions": group.settings_versions.all() if request.user.is_system_admin else None})
+    from ratings.services import evaluate_membership
+    rating = evaluate_membership(membership.pk) if membership else None
+    return render(request, "groups/detail.html", {"group": group, "settings": group.settings_on(), "membership": membership, "rating": rating, "memberships": group.memberships.select_related("user").all() if request.user.is_system_admin else None, "versions": group.settings_versions.all() if request.user.is_system_admin else None})
 
 @login_required
 @transaction.atomic
@@ -77,6 +79,8 @@ def membership_edit(request, pk):
     form = MembershipForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         membership, created = Membership.objects.update_or_create(group=group, user=form.cleaned_data["user"], defaults={"role": form.cleaned_data["role"], "is_active": True})
+        from ratings.services import evaluate_membership
+        evaluate_membership(membership.pk, actor=request.user, trigger="membership_saved")
         log(request, group, "membership_saved", user_id=membership.user_id, role=membership.role, created=created)
         return redirect("group_detail", pk=pk)
     return render(request, "groups/form.html", {"form": form, "title": "Add member or change group role", "description": "Selecting an existing member updates their role or restores their membership. Treasurer access applies only to this group."})

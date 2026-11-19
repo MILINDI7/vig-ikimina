@@ -41,7 +41,7 @@ def ensure_period(group_id, month=None, actor=None):
         AuditLog.objects.create(actor=actor, action="contribution_period_opened", details={"group_id": group.pk, "period_id": period.pk, "month": month.isoformat(), "settings_version_id": period.settings_version_id, "members_added": added})
     return period
 
-def _calculate(contribution, day, actor=None):
+def _calculate(contribution, day, actor=None, rating_trigger="contribution_recalculated"):
     """Caller holds the group and contribution locks. Never assess pending/approved."""
     days = contribution.days_late_on(day)
     if days:
@@ -57,6 +57,8 @@ def _calculate(contribution, day, actor=None):
         notify(contribution, f"due:{contribution.pk}", f"{contribution.period.group.name}: {contribution.period.amount} RWF for {contribution.period.month:%B %Y} is due by {contribution.period.due_date}.")
     contribution.last_calculated_at = timezone.now()
     contribution.save(update_fields=["last_calculated_at"])
+    from ratings.services import evaluate_membership
+    evaluate_membership(contribution.membership_id, actor=actor, trigger=rating_trigger)
     return contribution
 
 def _locked(contribution_id):
@@ -93,6 +95,8 @@ def submit_proof(contribution_id, owner, image):
         contribution.decline_reason = ""
         contribution.save(update_fields=["status", "reviewed_by", "reviewed_at", "decline_reason"])
         audit(owner, contribution, "proof_uploaded", submission_id=submission.pk)
+        from ratings.services import evaluate_membership
+        evaluate_membership(contribution.membership_id, actor=owner, trigger="proof_uploaded")
     except Exception:
         if submission.image.name:
             submission.image.storage.delete(submission.image.name)
@@ -123,7 +127,7 @@ def review_proof(contribution_id, reviewer, decision, reason, submission_id):
         contribution.payment_late_days = submission.submitted_late_days
     contribution.save(update_fields=["status", "reviewed_by", "reviewed_at", "decline_reason", "approved_at", "payment_late_days"])
     # Decline reactivates the ORIGINAL due date; approval never backfills the pending interval.
-    _calculate(contribution, timezone.localdate(), reviewer)
+    _calculate(contribution, timezone.localdate(), reviewer, rating_trigger="proof_"+decision)
     audit(reviewer, contribution, "proof_"+decision, submission_id=submission.pk, reason=submission.decline_reason)
     message = f"{group.name}: your {contribution.period.month:%B %Y} contribution was {decision}."
     if decision == Contribution.Status.DECLINED: message += f" Reason: {reason}. Lateness is counted from the original due date {contribution.period.due_date}."

@@ -5,6 +5,7 @@ from django.utils import timezone
 from groups.models import Group
 from contributions.models import Contribution
 from contributions.services import ensure_period, recalculate
+from ratings.services import evaluate_group
 
 class Command(BaseCommand):
     help = "Open the current month and assess due/late notices and penalties. Safe to repeat."
@@ -28,4 +29,8 @@ class Command(BaseCommand):
         for pk in Contribution.objects.filter(period__group__is_archived=False).exclude(status=Contribution.Status.APPROVED).values_list("pk", flat=True).iterator():
             recalculate(pk)
             count += 1
+        ratings = 0
+        for group_id in Group.objects.filter(is_archived=False).values_list("pk", flat=True).iterator():
+            ratings += evaluate_group(group_id)
+        self.stdout.write(f"Recalculated {ratings} membership ratings.")
         self.stdout.write(self.style.SUCCESS(f"Opened/checked {opened} group periods; recalculated {count} contributions."))
